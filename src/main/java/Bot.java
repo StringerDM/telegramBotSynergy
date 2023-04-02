@@ -4,20 +4,26 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.*;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import utils.PhotoMessageUtils;
 
 public class Bot extends TelegramLongPollingBot {
 
     public void onUpdateReceived(Update update) {
         Message message = update.getMessage();
         System.out.println(message.getText());
-
         try {
-            //1. Продолжая работу над ботом из предыдущих занятий, добавьте боту возможность отправлять сообщения
-            sendAnswer(update, "Your Message: " + message.getText());
-            //2. Реализуйте возможность получения изображения от пользователя, а также его отправку пользователю обратно
-            String path = getAndSavePhoto(update);
-            sendBackPhoto(update, path);
-        } catch (TelegramApiException e) {
+            if (message.hasText()) {
+                sendAnswer(update, "Your Message: " + message.getText());
+                if (message.getText().contains("/set_filter")) {
+                    PhotoMessageUtils.setOperation(message.getText());
+                }
+            }
+            if (message.hasPhoto()) {
+                String path = getAndSavePhoto(update);
+                PhotoMessageUtils.processingImage(path);
+                sendBackPhoto(update, path);
+            }
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -30,7 +36,7 @@ public class Bot extends TelegramLongPollingBot {
     }
 
     private String getAndSavePhoto(Update update) throws TelegramApiException {
-        PhotoSize photo = update.getMessage().getPhoto().get(0);
+        PhotoSize photo = update.getMessage().getPhoto().get(2);
         GetFile getFile = new GetFile(photo.getFileId());
         File file = execute(getFile);
         String path = photo.getFileId() + ".jpeg";
@@ -43,6 +49,7 @@ public class Bot extends TelegramLongPollingBot {
         SendPhoto sendPhoto = new SendPhoto();
         sendPhoto.setChatId(update.getMessage().getChatId().toString());
         sendPhoto.setPhoto(photo);
+        sendPhoto.setCaption("Edited image");
         execute(sendPhoto);
     }
 
