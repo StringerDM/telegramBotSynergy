@@ -1,3 +1,7 @@
+import commands.AppBotCommand;
+import commands.BotCommonCommands;
+import functions.FilterOperation;
+import functions.ImageOperation;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.GetFile;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -9,39 +13,64 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.Keyboard
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import utils.PhotoMessageUtils;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 
 public class Bot extends TelegramLongPollingBot {
 
+    Class[] commandClasses = new Class[]{BotCommonCommands.class};
+
     public void onUpdateReceived(Update update) {
         Message message = update.getMessage();
-        System.out.println(message.getText());
+
         try {
-            if (message.hasText()) {
-                sendAnswer(update, "Your Message: " + message.getText());
-                if (message.getText().contains("/set_filter")) {
-                    PhotoMessageUtils.setOperation(message.getText());
-                }
+            SendMessage responseTextMessage = runCommonCommand(message);
+            if (responseTextMessage != null) {
+                execute(responseTextMessage);
+                return;
             }
-            if (message.hasPhoto()) {
-                String path = getAndSavePhoto(update);
-                PhotoMessageUtils.processingImage(path);
-                sendBackPhoto(update, path);
+
+            SendPhoto sendFilteredPhoto = runPhotoFilter(message);
+            if (sendFilteredPhoto != null) {
+                execute(sendFilteredPhoto);
             }
+
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    private void sendAnswer(Update update, String message) throws TelegramApiException {
-        SendMessage sendMessage = new SendMessage();
-        sendMessage.setChatId(update.getMessage().getChatId().toString());
-        sendMessage.setText(message);
-        execute(sendMessage);
+    private SendMessage runCommonCommand(Message message) throws InvocationTargetException, IllegalAccessException {
+        String text = message.getText();
+        BotCommonCommands commands = new BotCommonCommands();
+        Method[] methods = commands.getClass().getDeclaredMethods();
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(AppBotCommand.class)) {
+                AppBotCommand command = method.getAnnotation(AppBotCommand.class);
+                if (command.name().equals(text)) {
+                    method.setAccessible(true);
+                    String responseText = (String) method.invoke(commands);
+                    if (responseText != null) {
+                        SendMessage sendMessage = new SendMessage();
+                        sendMessage.setChatId(message.getChatId().toString());
+                        sendMessage.setText(responseText);
+                        return sendMessage;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
-    private String getAndSavePhoto(Update update) throws TelegramApiException {
-        PhotoSize photo = update.getMessage().getPhoto().get(2);
+    private SendPhoto runPhotoFilter(Message message) throws Exception {
+        ImageOperation operation = FilterOperation::greyScale;
+        String photoPath = getAndSavePhoto(message);
+        return preparePhoto(message, photoPath, operation);
+    }
+
+    private String getAndSavePhoto(Message message) throws TelegramApiException {
+        PhotoSize photo = message.getPhoto().get(2);
         GetFile getFile = new GetFile(photo.getFileId());
         File file = execute(getFile);
         String path = photo.getFileId() + ".jpeg";
@@ -49,37 +78,51 @@ public class Bot extends TelegramLongPollingBot {
         return path;
     }
 
-    private void sendBackPhoto(Update update, String path) throws TelegramApiException {
+    private SendPhoto preparePhoto(Message message, String path, ImageOperation operation) throws Exception {
+        PhotoMessageUtils.processingImage(path, operation);
         InputFile photo = new InputFile(new java.io.File(path));
         SendPhoto sendPhoto = new SendPhoto();
 
-        sendPhoto.setReplyMarkup(getKeyboard("greyScale", "onlyRed", "onlyGreen", "onlyBlue", "sepia"));
+//        sendPhoto.setReplyMarkup(getKeyboard());
 
-        sendPhoto.setChatId(update.getMessage().getChatId().toString());
+        sendPhoto.setChatId(message.getChatId().toString());
         sendPhoto.setPhoto(photo);
         sendPhoto.setCaption("Edited image");
-        execute(sendPhoto);
+        return sendPhoto;
     }
 
-    private ReplyKeyboardMarkup getKeyboard(String... buttonNames) {
+    private ReplyKeyboardMarkup getKeyboard() {
         ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
+        ArrayList<KeyboardRow> allKeyboardRows = new ArrayList<>();
+        allKeyboardRows.addAll(getKeyboardsRows(BotCommonCommands.class));
+        allKeyboardRows.addAll(getKeyboardsRows(FilterOperation.class));
+        keyboard.setKeyboard(allKeyboardRows);
+        keyboard.setOneTimeKeyboard(true);
+        return keyboard;
+    }
+
+    private ArrayList<KeyboardRow> getKeyboardsRows(Class someClass) {
+        Method[] methods = someClass.getMethods();
+        ArrayList<AppBotCommand> commands = new ArrayList<>();
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(AppBotCommand.class)) {
+                commands.add(method.getAnnotation(AppBotCommand.class));
+            }
+        }
         ArrayList<KeyboardRow> keyboardRows = new ArrayList<>();
         int buttonsCount = 0;
         for (int i = 0; i < 3; i++) {
             KeyboardRow row = new KeyboardRow();
             for (int j = 0; j < 3; j++) {
-                if (buttonsCount > buttonNames.length) {
-                    break;
+                if (buttonsCount < commands.size()) {
+                    KeyboardButton button = new KeyboardButton(commands.get(buttonsCount).name());
+                    row.add(button);
+                    buttonsCount++;
                 }
-                KeyboardButton button = new KeyboardButton("/set_filter " + buttonNames[i]);
-                row.add(button);
-                buttonsCount++;
             }
             keyboardRows.add(row);
         }
-        keyboard.setKeyboard(keyboardRows);
-        keyboard.setOneTimeKeyboard(true);
-        return keyboard;
+        return keyboardRows;
     }
 
     public String getBotUsername() {
