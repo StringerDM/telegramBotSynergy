@@ -1,10 +1,15 @@
 package utils;
 
+import commands.AppBotCommand;
+import functions.FilterOperation;
+import functions.ImageOperation;
+
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Method;
 
 public class ImageUtils {
 
@@ -33,5 +38,19 @@ public class ImageUtils {
             return color.getRGB();
         }
         throw new Exception("Invalid color");
+    }
+
+    static public ImageOperation getOperation(String filter) {
+        FilterOperation filterOperation = new FilterOperation();
+        Method[] methods = filterOperation.getClass().getDeclaredMethods();
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(AppBotCommand.class)) {
+                AppBotCommand command = method.getAnnotation(AppBotCommand.class);
+                if (command.name().equals(filter)) {
+                    return (f) -> (float[]) method.invoke(filterOperation, f);
+                }
+            }
+        }
+        return null;
     }
 }
