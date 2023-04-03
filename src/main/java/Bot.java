@@ -17,10 +17,11 @@ import utils.PhotoMessageUtils;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 public class Bot extends TelegramLongPollingBot {
 
-    Class[] commandClasses = new Class[]{BotCommonCommands.class};
+    HashMap<String, Message> messages = new HashMap<>();
 
     public void onUpdateReceived(Update update) {
         Message message = update.getMessage();
@@ -32,9 +33,20 @@ public class Bot extends TelegramLongPollingBot {
                 return;
             }
 
-            SendPhoto sendFilteredPhoto = runPhotoFilter(message);
+            responseTextMessage = runPhotoMessage(message);
+            if (responseTextMessage != null) {
+                execute(responseTextMessage);
+                return;
+            }
+
+            Object sendFilteredPhoto = runPhotoFilter(message);
             if (sendFilteredPhoto != null) {
-                execute(sendFilteredPhoto);
+                if (sendFilteredPhoto instanceof SendPhoto) {
+                    execute((SendPhoto) sendFilteredPhoto);
+                } else {
+                    execute((SendMessage) sendFilteredPhoto);
+                }
+
             }
 
         } catch (Exception e) {
@@ -64,13 +76,39 @@ public class Bot extends TelegramLongPollingBot {
         return null;
     }
 
-    private SendPhoto runPhotoFilter(Message message) throws Exception {
-        ImageOperation operation = ImageUtils.getOperation(message.getCaption());
+    private SendMessage runPhotoMessage(Message message) {
+        if (!message.hasPhoto()) {
+            return null;
+        }
+        String chatId = message.getChatId().toString();
+        messages.put(message.getChatId().toString(), message);
+        ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
+        ArrayList<KeyboardRow> allKeyboardRows = new ArrayList<>(getKeyboardsRows(FilterOperation.class));
+        keyboard.setKeyboard(allKeyboardRows);
+        keyboard.setOneTimeKeyboard(true);
+        SendMessage sendMessage = new SendMessage();
+        sendMessage.setReplyMarkup(keyboard);
+        sendMessage.setChatId(chatId);
+        sendMessage.setText("Выберете фильтр");
+        return sendMessage;
+    }
+
+    private Object runPhotoFilter(Message message) throws Exception {
+        ImageOperation operation = ImageUtils.getOperation(message.getText());
         if (operation == null) {
             return null;
         }
-        String photoPath = getAndSavePhoto(message);
-        return preparePhoto(message, photoPath, operation);
+        String chatId = message.getChatId().toString();
+        message = messages.get(chatId);
+        if (messages != null) {
+            String photoPath = getAndSavePhoto(message);
+            return preparePhoto(message, photoPath, operation);
+        } else {
+            SendMessage sendMessage = new SendMessage();
+            sendMessage.setChatId(chatId);
+            sendMessage.setText("Отправьте фото, чтобы воспользоваться фильтром");
+            return sendMessage;
+        }
     }
 
     private String getAndSavePhoto(Message message) throws TelegramApiException {
@@ -95,15 +133,15 @@ public class Bot extends TelegramLongPollingBot {
         return sendPhoto;
     }
 
-    private ReplyKeyboardMarkup getKeyboard() {
-        ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
-        ArrayList<KeyboardRow> allKeyboardRows = new ArrayList<>();
-        allKeyboardRows.addAll(getKeyboardsRows(BotCommonCommands.class));
-        allKeyboardRows.addAll(getKeyboardsRows(FilterOperation.class));
-        keyboard.setKeyboard(allKeyboardRows);
-        keyboard.setOneTimeKeyboard(true);
-        return keyboard;
-    }
+//    private ReplyKeyboardMarkup getKeyboard() {
+//        ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
+//        ArrayList<KeyboardRow> allKeyboardRows = new ArrayList<>();
+//        allKeyboardRows.addAll(getKeyboardsRows(BotCommonCommands.class));
+//        allKeyboardRows.addAll(getKeyboardsRows(FilterOperation.class));
+//        keyboard.setKeyboard(allKeyboardRows);
+//        keyboard.setOneTimeKeyboard(true);
+//        return keyboard;
+//    }
 
     private ArrayList<KeyboardRow> getKeyboardsRows(Class someClass) {
         Method[] methods = someClass.getMethods();
