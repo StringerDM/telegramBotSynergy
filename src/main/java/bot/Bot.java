@@ -1,3 +1,5 @@
+package bot;
+
 import commands.AppBotCommand;
 import commands.BotCommonCommands;
 import functions.FilterOperation;
@@ -18,14 +20,16 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 public class Bot extends TelegramLongPollingBot {
 
     HashMap<String, Message> messages = new HashMap<>();
+    List<String> users = new ArrayList<>();
 
     public void onUpdateReceived(Update update) {
         Message message = update.getMessage();
-
+        saveNewUser(update);
         try {
             SendMessage responseTextMessage = runCommonCommand(message);
             if (responseTextMessage != null) {
@@ -124,24 +128,11 @@ public class Bot extends TelegramLongPollingBot {
         PhotoMessageUtils.processingImage(path, operation);
         InputFile photo = new InputFile(new java.io.File(path));
         SendPhoto sendPhoto = new SendPhoto();
-
-//        sendPhoto.setReplyMarkup(getKeyboard());
-
         sendPhoto.setChatId(message.getChatId().toString());
         sendPhoto.setPhoto(photo);
         sendPhoto.setCaption("Edited image");
         return sendPhoto;
     }
-
-//    private ReplyKeyboardMarkup getKeyboard() {
-//        ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
-//        ArrayList<KeyboardRow> allKeyboardRows = new ArrayList<>();
-//        allKeyboardRows.addAll(getKeyboardsRows(BotCommonCommands.class));
-//        allKeyboardRows.addAll(getKeyboardsRows(FilterOperation.class));
-//        keyboard.setKeyboard(allKeyboardRows);
-//        keyboard.setOneTimeKeyboard(true);
-//        return keyboard;
-//    }
 
     private ArrayList<KeyboardRow> getKeyboardsRows(Class someClass) {
         Method[] methods = someClass.getMethods();
@@ -165,6 +156,18 @@ public class Bot extends TelegramLongPollingBot {
             keyboardRows.add(row);
         }
         return keyboardRows;
+    }
+
+    public void saveNewUser(Update update) {
+        User user = update.getMessage().getFrom();
+        String userName = user.getUserName();
+        if (!users.contains(userName)) {
+            users.add(userName);
+        }
+    }
+
+    public List<String> getUsers() {
+        return users;
     }
 
     public String getBotUsername() {
